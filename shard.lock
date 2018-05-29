@@ -12,3 +12,7 @@ shards:
     github: luislavena/radix
     version: 0.3.8
 
+  turbolinks:
+    github: bentranter/turbolinks
+    version: 0.1.1
+

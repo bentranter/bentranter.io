@@ -8,3 +8,7 @@ dependencies:
   kemal:
     github: kemalcr/kemal
     version: ~> 0.22.0
+  
+  turbolinks:
+    github: bentranter/turbolinks
+    version: ~> 0.1.1
