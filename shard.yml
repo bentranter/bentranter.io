@@ -1,0 +1,10 @@
+name: bentranter.io
+version: 0.0.1
+license: MIT
+
+crystal: 0.24.1
+
+dependencies:
+  kemal:
+    github: kemalcr/kemal
+    version: ~> 0.22.0

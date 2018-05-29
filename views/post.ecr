@@ -1,0 +1,131 @@
+<div class="container">
+  <h1><a href="/">bentranter.io</a></h1>
+  <h2>Deploying Ghost with Caddy</h2>
+
+  <p>Published <time class="post-date" datetime="2016-09-04">04 September 2016</time></p>
+
+  <p class="italics">Note: These instructions are long out-of-date. Ghost can no longer be setup this way.</p>
+
+  <p>In my experience, setting up a new blog is a pain: you buy a domain, buy an SSL cert, setup a droplet from Digital Ocean, <code>apt-get</code> a bunch of stuff, attempt to <code>scp</code> over some stuff from your machine, write an upstart job, accidentally upgrade to Ubuntu 16, write a systemd job, fight with those jobs, fight with nginx for an hour, and eventually you'll have a half working blog. Not anymore though! Here's the relatively efficient way to setup a new blog with Ghost and Caddy on Digital Ocean. We're going to cut some corners here to make the setup as easy as possible.</p>
+  
+  <h5>Step 1: Buy a domain</h5>
+  <p>Go buy a domain from somewhere &ndash; it doesn't matter where. Once that's done, point the nameservers to ns1.digitalocean.com., ns2.digitalocean.com., and ns3.digitalocean.com.</p>
+
+  <h5>Step 2: Get a droplet from Digital Ocean</h5>
+  <p>Go to <a href="https://m.do.co/c/ced733f1f43a" target="_blank">Digital Ocean</a> (that's my affiliate link btw) and click the green "Create Droplet" button in the top right. After that, click the "One-Click Apps" tab, and select "Ghost on 14.04". Get whatever droplet size you feel like, pick your region, and add your SSH keys if you want/know how (we're not going to do that though). Change the name to something that makes sense, and create your droplet.<p>
+
+  <p>One your droplet is created, go to the networking tab, and add the domain you just bought by typing in your domain name in the "Domain" box, and then selecting your new droplet in the "Droplet or custom IP" box. Hit "Create Record", and that's it.</p>
+
+  <h5>Step 3: SSH into your droplet</h5>
+  <p>Check your email for your throwaway password, then SSH into your droplet by running <code>ssh root@&lt;your-ip&gt;</code>. Enter your throwaway password, and follow the steps to change it.</p>
+
+  <h5>Step 4: Let Ubuntu update itself</h5>
+  <p>RIP to upstart, and praise systemd.</p>
+
+  <h5>Step 5: Install and setup Caddy</h5>
+  <p>Run <code>service nginx stop</code>, since we'll be using Caddy instead. Install Caddy by running <code>curl https://getcaddy.com | bash</code>, which will detect which OS you've got, and install Caddy based on that.</p>
+
+  <p>Caddy will need to bind to certain ports, so run <code>setcap cap_net_bind_service=+ep $(which caddy)</code>.</p>
+
+  <p>We'll also need a Caddyfile and a place to put it. Create a directory for it by running <code>mkdir /var/www/caddy</code>, then create the Caddyfile at <code>/var/www/caddy/Caddyfile</code>. Your Caddyfile should contain this:<p>
+
+  <pre>
+    <code>
+&lt;YOUR-DOMAIN&gt; {  
+  proxy / localhost:2368 {
+    proxy_header Host {host}
+    proxy_header X-Real-IP {remote}
+    proxy_header X-Forwarded-Proto {scheme}
+  }
+  tls &lt;YOUR-EMAIL&gt;
+}
+    </code>
+  </pre>
+
+  <p>Where <code>&lt;YOUR-EMAIL&gt;</code> needs to be the domain you bought in the format example.com, and <code>&lt;YOUR-EMAIL&gt;</code> just needs to be your email.</p>
+
+  <p>You'll need to create two systemd service files: one for Ghost, and one for Caddy. Let's start with the one for Caddy. First, create a directory to put your SSL certs in by running <code>sudo mkdir -p /etc/ssl/caddy && sudo chown -R ghost:ghost /etc/ssl/caddy</code>. Note that because we used the One-Click image to setup our droplet, the user ghost already exists on our machine. Next, create the file <code>/lib/systemd/system/caddy.service</code>, and put the following in it:</p>
+
+  <pre>
+    <code>
+[Unit]
+Description=Caddy  
+After=network.target
+
+[Service]
+Type=simple  
+User=ghost  
+Group=ghost  
+Environment=HOME=/etc/ssl/caddy  
+ReadWriteDirectories=/etc/ssl/caddy  
+ExecStart=/usr/local/bin/caddy --conf /var/www/caddy/Caddyfile --agree --email '&lt;YOUR-EMAIL&gt;'  
+Restart=always  
+SyslogIdentifier=Caddy
+
+[Install]
+WantedBy=multi-user.target
+    </code>
+  </pre>
+
+  <p>Replace &lt;YOUR-EMAIL&gt; with your actual email (the same one you used in your Caddyfile), since that's needed for your SSL cert renewal.</p>
+
+  <p>Next, create the service file for Ghost at <code>/lib/systemd/system/ghost.service</code>. It should contain:</p>
+
+  <pre>
+    <code>
+[Unit]
+Description=Ghost  
+After=network.target
+
+[Service]
+Type=simple  
+WorkingDirectory=/var/www/ghost  
+User=ghost  
+Group=ghost  
+ExecStart=/usr/bin/npm start --production  
+ExecStop=/usr/bin/npm stop --production  
+Restart=always  
+SyslogIdentifier=Ghost
+
+[Install]
+WantedBy=multi-user.target
+    </code>
+  </pre>
+
+  <p>Finally, you need to modify your Ghost config, which is at /var/www/ghost/config.js. This is a JavaScript file, and you'll need to modify the section where it has the config for your production configuration. You should only need to change the value for the url.</p>
+
+  <pre>
+    <code>
+config = {  
+    // ### Production
+    // When running Ghost in the wild, use the production environment.
+    // Configure your URL and mail settings here
+    production: {
+        url: 'https://&lt;YOUR-DOMAIN&gt;',
+        mail: {},
+        database: {
+            client: 'sqlite3',
+            connection: {
+                filename: path.join(__dirname, '/content/data/ghost.db')
+            },
+            debug: false
+        },
+
+        server: {
+            host: '127.0.0.1',
+            port: '2368'
+        }
+    },
+    </code>
+  </pre>
+
+  <p>As usual, change <code>&lt;YOUR-DOMAIN&gt;</code> to the one you bought.</p>
+
+  <p>After that, you're ready to start your services. Start Ghost by running service ghost start, and then start Caddy by running service caddy start. After that, you can go to your domain, and everything should be working. If you get any errors, the best place to start is in the logs for your services, so run <code>journalctl -u caddy</code> or <code>journalctl -u ghost</code> to see the output.</p>
+
+  <p>If you've done everything correctly, your domain will be all setup with Ghost, and served over HTTPS. Congrats on the new blog!</p>
+
+  <hr />
+
+  <small>Enjoyed this article? Found a bug? Using Upstart instead of Systemd? Whatever your needs, feel free to email me at <code>ben at bentranter dot io</code>.</small>
+</div>
